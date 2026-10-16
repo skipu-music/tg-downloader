@@ -32,6 +32,7 @@ button.main:hover{background:var(--brand-d)}
 button:disabled{opacity:.6;cursor:wait}
 :focus-visible{outline:3px solid var(--brand);outline-offset:2px}
 #err{display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--errbg);color:var(--err)}
+.status{display:none;margin-top:12px;color:var(--mute)}
 #file{display:none;margin-top:14px}
 #fname{font-weight:600;word-break:break-all}
 #fmeta{color:var(--mute);margin:2px 0 0}
@@ -50,6 +51,7 @@ button:disabled{opacity:.6;cursor:wait}
       <button id="paste" type="button">পেস্ট</button>
     </div>
     <button id="check" class="main" type="button">ফাইল খুঁজুন</button>
+    <div id="status" class="status" role="status" aria-live="polite"></div>
     <div id="err" role="alert"></div>
 
     <div id="file">
@@ -68,9 +70,11 @@ button:disabled{opacity:.6;cursor:wait}
 const API = "https://tg-downloader-nrlr.onrender.com";
 
 const $ = id => document.getElementById(id);
-const urlEl = $("url"), errEl = $("err"), fileEl = $("file");
+const urlEl = $("url"), errEl = $("err"), statusEl = $("status"), fileEl = $("file");
 
 function showErr(msg){ errEl.textContent = msg; errEl.style.display = msg ? "block" : "none"; }
+function showStatus(msg){ statusEl.textContent = msg; statusEl.style.display = msg ? "block" : "none"; }
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 function size(n){
   if(!n) return "আকার অজানা";
   const u = ["B","KB","MB","GB"]; let i = 0;
@@ -84,21 +88,48 @@ $("paste").onclick = async () => {
 };
 
 async function check(){
+  if($("check").disabled) return;
   const link = urlEl.value.trim();
   if(API.includes("YOUR-BACKEND")){ showErr("index.html-এ API ঠিকানা এখনও বসানো হয়নি।"); return; }
-  showErr(""); fileEl.style.display = "none";
+  showErr(""); showStatus(""); fileEl.style.display = "none";
   if(!link){ showErr("আগে একটি টেলিগ্রাম লিংক দিন।"); return; }
   const btn = $("check"); btn.disabled = true; btn.textContent = "খোঁজা হচ্ছে…";
+  const wakeHint = setTimeout(() => showStatus("সার্ভার সাড়া দিতে একটু সময় নিচ্ছে—ফ্রি সার্ভার ঘুমিয়ে থাকলে প্রথমবার জাগতে কিছুটা সময় লাগতে পারে।"), 2000);
   try{
-    const r = await fetch(API + "/api/info?url=" + encodeURIComponent(link));
-    const d = await r.json();
-    if(!r.ok) throw new Error(d.error || "সমস্যা হয়েছে, আবার চেষ্টা করুন।");
+    const getInfo = async () => {
+      let r;
+      try { r = await fetch(API + "/api/info?url=" + encodeURIComponent(link)); }
+      catch(e){ e.retryable = true; throw e; }
+      let d;
+      try { d = await r.json(); }
+      catch(e){
+        const error = new Error("সার্ভার থেকে সঠিক উত্তর পাওয়া যায়নি।");
+        error.retryable = [502, 503, 504].includes(r.status);
+        throw error;
+      }
+      if(!r.ok){
+        const error = new Error(d.error || "সমস্যা হয়েছে, আবার চেষ্টা করুন।");
+        error.retryable = [502, 503, 504].includes(r.status);
+        throw error;
+      }
+      return d;
+    };
+    let d;
+    try { d = await getInfo(); }
+    catch(e){
+      if(!e.retryable) throw e;
+      clearTimeout(wakeHint);
+      showStatus("সার্ভার জাগতে সময় নিচ্ছে—একবার স্বয়ংক্রিয়ভাবে আবার চেষ্টা করছি…");
+      await delay(5000);
+      d = await getInfo();
+    }
     $("fname").textContent = d.name;
     $("fmeta").textContent = size(d.size) + (d.mime ? " · " + d.mime : "");
     fileEl.style.display = "block";
   }catch(e){
-    showErr(e.message.includes("fetch") ? "সার্ভারের সাথে যোগাযোগ হচ্ছে না। server.py চালু আছে কিনা দেখুন।" : e.message);
+    showErr(e instanceof TypeError || e.message.includes("fetch") ? "সার্ভারের সাথে যোগাযোগ করা যাচ্ছে না। একটু পরে আবার চেষ্টা করুন।" : e.message);
   }finally{
+    clearTimeout(wakeHint); showStatus("");
     btn.disabled = false; btn.textContent = "ফাইল খুঁজুন";
   }
 }
