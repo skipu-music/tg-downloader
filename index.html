@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>টেলিগ্রাম ফাইল ডাউনলোডার</title>
+<meta name="description" content="পাবলিক টেলিগ্রাম চ্যানেলের মেসেজ লিংক দিয়ে ভিডিও ও ফাইল ডাউনলোড করুন। লগইন লাগে না।">
+<link rel="canonical" href="https://skipu-music.github.io/tg-downloader/">
+<meta property="og:site_name" content="টেলিগ্রাম ফাইল ডাউনলোডার">
+<meta property="og:title" content="টেলিগ্রাম ফাইল ডাউনলোডার">
+<meta property="og:description" content="পাবলিক টেলিগ্রাম চ্যানেলের ভিডিও ও ফাইল ডাউনলোড করুন।">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://skipu-music.github.io/tg-downloader/">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="icon" type="image/png" sizes="192x192" href="favicon-192.png">
+<link rel="apple-touch-icon" href="favicon-192.png">
+<style>
+:root{--bg:#f3f6f8;--card:#fff;--ink:#14202b;--mute:#5d6b78;--line:#d5dde4;--brand:#1f7ab8;--brand-d:#165d8c;--err:#b3261e;--errbg:#fdecea}
+@media (prefers-color-scheme:dark){:root{--bg:#0f161c;--card:#18222b;--ink:#e8eef3;--mute:#93a3b1;--line:#2a3743;--brand:#4aa3df;--brand-d:#6bb6e8;--err:#ff8a80;--errbg:#3a1e1c}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 "Noto Sans Bengali","Hind Siliguri",system-ui,sans-serif;min-height:100vh;padding:max(20px,env(safe-area-inset-top)) 16px 32px}
+main{max-width:560px;margin:0 auto}
+h1{font-size:1.6rem;line-height:1.3;margin:12px 0 6px}
+.sub{color:var(--mute);margin:0 0 22px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+label{display:block;font-weight:600;margin-bottom:8px}
+.row{display:flex;gap:8px}
+input{flex:1;min-width:0;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit}
+button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:12px 14px}
+button.main{width:100%;margin-top:12px;background:var(--brand);border-color:var(--brand);color:#fff;font-weight:600}
+button.main:hover{background:var(--brand-d)}
+button:disabled{opacity:.6;cursor:wait}
+:focus-visible{outline:3px solid var(--brand);outline-offset:2px}
+#err{display:none;margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--errbg);color:var(--err)}
+#file{display:none;margin-top:14px}
+#fname{font-weight:600;word-break:break-all}
+#fmeta{color:var(--mute);margin:2px 0 0}
+.note{color:var(--mute);font-size:.9rem;margin-top:20px}
+</style>
+</head>
+<body>
+<main>
+  <h1>টেলিগ্রাম ফাইল ডাউনলোড</h1>
+  <p class="sub">পাবলিক চ্যানেলের মেসেজ লিংক দিন, ভিডিও বা ফাইল নামিয়ে নিন।</p>
+
+  <div class="box">
+    <label for="url">মেসেজ লিংক</label>
+    <div class="row">
+      <input id="url" type="url" placeholder="https://t.me/channel_name/123" autocomplete="off" spellcheck="false">
+      <button id="paste" type="button">পেস্ট</button>
+    </div>
+    <button id="check" class="main" type="button">ফাইল খুঁজুন</button>
+    <div id="err" role="alert"></div>
+
+    <div id="file">
+      <div id="fname"></div>
+      <p id="fmeta"></p>
+      <button id="dl" class="main" type="button">ডাউনলোড শুরু করুন</button>
+    </div>
+  </div>
+
+  <p class="note">শুধু পাবলিক চ্যানেলের লিংক (t.me/চ্যানেল/১২৩) চলবে। প্রাইভেট গ্রুপের লিংক (t.me/c/…) চলবে না। যে ফাইল ডাউনলোডের অধিকার আপনার আছে, শুধু সেটাই নামান।</p>
+</main>
+
+<script>
+// আপনার ব্যাকএন্ড সার্ভারের ঠিকানা (শেষে / দেবেন না)। GitHub Pages-এ সার্ভার চলে না,
+// তাই backend/server.py আলাদা জায়গায় চালিয়ে তার ঠিকানা এখানে বসান।
+const API = "https://YOUR-BACKEND-URL";
+
+const $ = id => document.getElementById(id);
+const urlEl = $("url"), errEl = $("err"), fileEl = $("file");
+
+function showErr(msg){ errEl.textContent = msg; errEl.style.display = msg ? "block" : "none"; }
+function size(n){
+  if(!n) return "আকার অজানা";
+  const u = ["B","KB","MB","GB"]; let i = 0;
+  while(n >= 1024 && i < u.length-1){ n /= 1024; i++; }
+  return n.toFixed(i ? 1 : 0) + " " + u[i];
+}
+
+$("paste").onclick = async () => {
+  try { urlEl.value = (await navigator.clipboard.readText()).trim(); }
+  catch(e){ showErr("ক্লিপবোর্ড পড়া যায়নি। লিংকটা হাতে পেস্ট করুন।"); }
+};
+
+async function check(){
+  const link = urlEl.value.trim();
+  if(API.includes("YOUR-BACKEND")){ showErr("index.html-এ API ঠিকানা এখনও বসানো হয়নি।"); return; }
+  showErr(""); fileEl.style.display = "none";
+  if(!link){ showErr("আগে একটি টেলিগ্রাম লিংক দিন।"); return; }
+  const btn = $("check"); btn.disabled = true; btn.textContent = "খোঁজা হচ্ছে…";
+  try{
+    const r = await fetch(API + "/api/info?url=" + encodeURIComponent(link));
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error || "সমস্যা হয়েছে, আবার চেষ্টা করুন।");
+    $("fname").textContent = d.name;
+    $("fmeta").textContent = size(d.size) + (d.mime ? " · " + d.mime : "");
+    fileEl.style.display = "block";
+  }catch(e){
+    showErr(e.message.includes("fetch") ? "সার্ভারের সাথে যোগাযোগ হচ্ছে না। server.py চালু আছে কিনা দেখুন।" : e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = "ফাইল খুঁজুন";
+  }
+}
+
+$("check").onclick = check;
+urlEl.addEventListener("keydown", e => { if(e.key === "Enter") check(); });
+
+// ব্রাউজারের নিজস্ব ডাউনলোড ম্যানেজার ব্যবহার হয়, তাই বড় ফাইলেও মেমরি ফুরায় না
+$("dl").onclick = () => {
+  const a = document.createElement("a");
+  a.href = API + "/api/download?url=" + encodeURIComponent(urlEl.value.trim());
+  a.download = "";
+  document.body.appendChild(a); a.click(); a.remove();
+};
+</script>
+</body>
+</html>
