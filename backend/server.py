@@ -1,5 +1,6 @@
 import os, re, asyncio, threading
 from urllib.parse import quote
+from urllib.request import Request, urlopen
 from flask import Flask, request, jsonify, Response
 from telethon import TelegramClient
 from telethon.sessions import StringSession
@@ -123,5 +124,32 @@ def download():
     return Response(stream(), mimetype=msg.file.mime_type or "application/octet-stream", headers=headers)
 
 
+def keep_alive():
+    """Best-effort public HTTP ping; cannot recover a stopped Render instance."""
+    url = os.environ.get("KEEP_ALIVE_URL") or os.environ.get("RENDER_EXTERNAL_URL")
+    if not url or os.environ.get("KEEP_ALIVE_ENABLED", "true").lower() in {"0", "false", "no"}:
+        return
+    interval = 14 * 60
+    timer = threading.Event()
+    app.logger.warning("Keep-alive enabled: public HTTP ping every %s seconds", interval)
+    # Give Flask time to bind its port before the initial ping.
+    delay = 30
+    while not timer.wait(delay):
+        for attempt in range(2):
+            try:
+                req = Request(url.rstrip("/") + "/", headers={"User-Agent": "tg-downloader-keepalive/1.0"})
+                with urlopen(req, timeout=20) as response:
+                    if response.read(16).strip() != b"ok":
+                        raise RuntimeError("Unexpected health response")
+                    app.logger.warning("Keep-alive ping succeeded: HTTP %s", response.status)
+                break
+            except Exception as exc:
+                app.logger.warning("Keep-alive ping failed (%s/2): %s", attempt + 1, type(exc).__name__)
+                if attempt == 0:
+                    timer.wait(30)
+        delay = interval
+
+
 if __name__ == "__main__":
+    threading.Thread(target=keep_alive, name="keep-alive", daemon=True).start()
     app.run(host="0.0.0.0", port=PORT, threaded=True)
